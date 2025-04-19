@@ -15,16 +15,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive  # 关键修复1：递归初始化子模块
 
-      - name: Install Chocolatey Packages
+      - name: Install Build Tools
         shell: pwsh
         run: |
-          # 安装必要的 Visual Studio 组件
           choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-          choco install -y dotnetfx
-          
-          # 显式调用刷新环境变量（兼容性处理）
-          $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ";" + [System.Environment]::GetEnvironmentVariable('Path','User')
+          refreshenv
           Write-Host "##vso[task.prependpath]C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64"
 
       - name: Setup Rust
@@ -33,22 +31,28 @@ jobs:
           toolchain: stable
           target: x86_64-pc-windows-msvc
           override: true
+          components: rustc, rust-std, cargo, clippy, rustfmt  # 关键修复2：明确组件
 
       - name: Build Project
         shell: pwsh
         run: |
-          # 创建输出目录
-          New-Item -ItemType Directory -Path "bins" -Force | Out-Null
-          
-          # 构建命令（添加详细日志）
+          # 验证子模块存在性
+          if (-not (Test-Path "libs/hbb_common/Cargo.toml")) {
+              Write-Error "关键依赖缺失: libs/hbb_common/Cargo.toml 不存在"
+              exit 1
+          }
+
+          # 带详细日志的构建
           cargo build --verbose --bin controlled --features controlled --release --target x86_64-pc-windows-msvc
           
-          # 文件复制与验证
+          # 产物路径处理
           $exePath = "target/x86_64-pc-windows-msvc/release/controlled.exe"
           if (Test-Path $exePath) {
+              New-Item -ItemType Directory -Path "bins" -Force | Out-Null
               Copy-Item $exePath -Destination "bins/controlled.exe"
           } else {
-              Write-Error "构建产物未找到: $exePath"
+              Get-ChildItem -Recurse target  # 调试：列出构建目录
+              Write-Error "构建失败：产物未生成"
               exit 1
           }
 
