@@ -1,83 +1,63 @@
-name: Windows Build
+name: Windows DLL Build
 
 on:
-  # 手动触发配置
   workflow_dispatch:
     inputs:
-      build-version:
-        description: '输入构建版本号 (例如 1.2.3)'
-        required: true
-        default: '1.0.0'
       build-arch:
-        description: '选择目标架构'
+        description: 'Target Architecture'
         required: true
         default: 'x64'
         type: choice
-        options:
-          - x86
-          - x64
+        options: [ x64, x86 ]
 
 env:
-  SOLUTION_PATH: WindowInjection/WindowInjection.vcxproj
+  VS_INSTALL_DIR: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
 
 jobs:
-  build-windows-dll:
+  build-dll:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     steps:
-    # 手动触发参数接收
-    - name: Parse inputs
-      run: |
-        echo "BUILD_VERSION=${{ github.event.inputs.build-version }}" >> $env:GITHUB_ENV
-        echo "BUILD_ARCH=${{ github.event.inputs.build-arch }}" >> $env:GITHUB_ENV
-
-    # 代码检出
-    - name: Checkout source
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
         repository: rustdesk-org/RustDeskTempTopMostWindow
         path: src
         ref: main
 
-    # 版本注入
-    - name: Inject version info
+    # 关键修复步骤：安装必要组件
+    - name: Install VS Build Tools
       shell: powershell
       run: |
-        $versionFile = "src/version.props"
-        $content = @"
-        <Project>
-          <PropertyGroup>
-            <Version>$env:BUILD_VERSION</Version>
-            <Platform>$env:BUILD_ARCH</Platform>
-          </PropertyGroup>
-        </Project>
-        "@
-        Set-Content -Path $versionFile -Value $content
-        Get-Content $versionFile
+        choco install -y visualstudio2022-workload-vctools `
+          --package-parameters="--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64" `
+          --no-progress
+        refreshenv
 
-    # 构建流程
-    - name: Build with MSBuild
+    - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
       with:
-        vs-version: '2022'
+        vs-version: 2022
+        architecture: ${{ github.event.inputs.build-arch }}
 
-    - name: Run MSBuild
-      shell: powershell
+    - name: Verify MSBuild
+      run: msbuild -version
+      shell: cmd
+
+    - name: Build Solution
       run: |
-        msbuild $env:SolutionPath `
+        msbuild src/WindowInjection/WindowInjection.vcxproj `
           /p:Configuration=Release `
-          /p:Platform=$env:BUILD_ARCH `
+          /p:Platform=${{ github.event.inputs.build-arch }} `
           /p:WindowsTargetPlatformVersion=10.0 `
           /p:AppxPackageSigningEnabled=false
-      working-directory: ./src
+      shell: cmd
 
-    # 产物处理
-    - name: Archive output
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: rustdesk-dll-${{ env.BUILD_ARCH }}-${{ env.BUILD_VERSION }}
+        name: dll-output-${{ github.event.inputs.build-arch }}
         path: |
-          src/WindowInjection/${{ env.BUILD_ARCH }}/Release/*.dll
-          src/WindowInjection/${{ env.BUILD_ARCH }}/Release/*.pdb
-        retention-days: 7
+          src/WindowInjection/${{ github.event.inputs.build-arch }}/Release/*.dll
+          src/WindowInjection/${{ github.event.inputs.build-arch }}/Release/*.pdb
