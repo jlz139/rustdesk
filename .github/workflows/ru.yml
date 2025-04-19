@@ -1,63 +1,59 @@
-name: Windows DLL Build
+name: Windows Build
 
 on:
   workflow_dispatch:
-    inputs:
-      build-arch:
-        description: 'Target Architecture'
-        required: true
-        default: 'x64'
-        type: choice
-        options: [ x64, x86 ]
+  push:
+    branches: [ main ]
 
 env:
-  VS_INSTALL_DIR: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: full
+  RUSTFLAGS: "-C target-feature=+crt-static"
 
 jobs:
-  build-dll:
+  build-controlled:
     runs-on: windows-latest
-    timeout-minutes: 25
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        repository: rustdesk-org/RustDeskTempTopMostWindow
-        path: src
-        ref: main
+      - uses: actions/checkout@v4
 
-    # 关键修复步骤：安装必要组件
-    - name: Install VS Build Tools
-      shell: powershell
-      run: |
-        choco install -y visualstudio2022-workload-vctools `
-          --package-parameters="--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64" `
-          --no-progress
-        refreshenv
+      - name: Install Chocolatey Packages
+        shell: pwsh
+        run: |
+          # 安装必要的 Visual Studio 组件
+          choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+          choco install -y dotnetfx
+          
+          # 显式调用刷新环境变量（兼容性处理）
+          $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ";" + [System.Environment]::GetEnvironmentVariable('Path','User')
+          Write-Host "##vso[task.prependpath]C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64"
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      with:
-        vs-version: 2022
-        architecture: ${{ github.event.inputs.build-arch }}
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+          override: true
 
-    - name: Verify MSBuild
-      run: msbuild -version
-      shell: cmd
+      - name: Build Project
+        shell: pwsh
+        run: |
+          # 创建输出目录
+          New-Item -ItemType Directory -Path "bins" -Force | Out-Null
+          
+          # 构建命令（添加详细日志）
+          cargo build --verbose --bin controlled --features controlled --release --target x86_64-pc-windows-msvc
+          
+          # 文件复制与验证
+          $exePath = "target/x86_64-pc-windows-msvc/release/controlled.exe"
+          if (Test-Path $exePath) {
+              Copy-Item $exePath -Destination "bins/controlled.exe"
+          } else {
+              Write-Error "构建产物未找到: $exePath"
+              exit 1
+          }
 
-    - name: Build Solution
-      run: |
-        msbuild src/WindowInjection/WindowInjection.vcxproj `
-          /p:Configuration=Release `
-          /p:Platform=${{ github.event.inputs.build-arch }} `
-          /p:WindowsTargetPlatformVersion=10.0 `
-          /p:AppxPackageSigningEnabled=false
-      shell: cmd
-
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dll-output-${{ github.event.inputs.build-arch }}
-        path: |
-          src/WindowInjection/${{ github.event.inputs.build-arch }}/Release/*.dll
-          src/WindowInjection/${{ github.event.inputs.build-arch }}/Release/*.pdb
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlled-bin
+          path: bins/controlled.exe
