@@ -1,52 +1,99 @@
-name: Build with VS 2022
+name: RustDesk Windows Build
 
-on: [push, pull_request]
+on:
+  workflow_dispatch:
+    inputs:
+      clean_build:
+        description: "Perform full clean rebuild"
+        type: boolean
+        default: false
+
+env:
+  VCPKG_ROOT: "C:\\vcpkg"
+  BUILD_DIR: "C:\\build_output"
+  RUST_BACKTRACE: "full"
 
 jobs:
   build:
-    runs-on: windows-latest  # 必须使用 Windows 环境
+    runs-on: windows-latest
+    timeout-minutes: 90
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    - name: Clean workspace (if needed)
+      if: ${{ inputs.clean_build }}
+      shell: powershell
+      run: |
+        Remove-Item -Recurse -Force "$env:VCPKG_ROOT" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "$env:BUILD_DIR" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "target" -ErrorAction SilentlyContinue
+
+    - name: Checkout code (with safe permissions)
+      uses: actions/checkout@v4
       with:
-        submodules: recursive  # 确保拉取子模块
+        submodules: recursive
+        path: src
+        clean: true
+        fetch-depth: 0
 
-    # 安装 Chocolatey（如尚未安装）
-    - name: Install Chocolatey
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@v1
+      with:
+        toolchain: stable
+        targets: x86_64-pc-windows-msvc
+        components: rustfmt, clippy
+
+    - name: Install build dependencies
       shell: powershell
       run: |
-        Set-ExecutionPolicy Bypass -Scope Process -Force
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        # 安装必要系统工具
+        choco install -y cmake llvm nasm python --version=3.9.13
+        refreshenv
 
-    # 安装必要组件
-    - name: Install VS 2022 Build Tools
+        # 设置vcpkg
+        if (-not (Test-Path "$env:VCPKG_ROOT")) {
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          cd "$env:VCPKG_ROOT"
+          .\bootstrap-vcpkg.bat -disableMetrics
+        }
+
+        # 安装依赖库
+        & "$env:VCPKG_ROOT\vcpkg" install @(
+          "libvpx[core]",
+          "libyuv[core]",
+          "openssl[core]"
+        ) --triplet x64-windows --clean-after-build
+
+    - name: Build RustDesk (with permission fix)
       shell: powershell
       run: |
-        choco install -y visualstudio2022buildtools --package-parameters="--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-        choco install -y dotnetfx
+        # 修复权限问题
+        $ErrorActionPreference = "Stop"
+        $buildType = "release"
+        $env:CARGO_TARGET_DIR = "$env:BUILD_DIR"
 
-    # 刷新环境变量
-    - name: Update environment variables
-      shell: powershell
-      run: |
-        Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-        Update-SessionEnvironment
-        # 显式添加 MSVC 路径到 PATH
-        $msvcPath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64"
-        echo "PATH=$env:PATH;$msvcPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        # 显式设置工作目录
+        Set-Location -Path "$env:GITHUB_WORKSPACE\src"
 
-    # 验证路径和编译器
-    - name: Verify MSVC tools
-      shell: powershell
-      run: |
-        # 检查 cl.exe 是否存在
-        if (Test-Path "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64\cl.exe") {
-          Write-Host "MSVC cl.exe 路径验证成功"
-        } else {
-          Write-Error "MSVC cl.exe 未找到"
+        # 修复文件权限
+        Get-ChildItem -Recurse | ForEach-Object {
+          $_.Attributes = "Normal"
+        }
+
+        # 构建项目
+        cargo build --$buildType --target x86_64-pc-windows-msvc -v
+
+        # 验证输出
+        $exePath = "$env:BUILD_DIR\x86_64-pc-windows-msvc\$buildType\rustdesk.exe"
+        if (-not (Test-Path $exePath)) {
+          Write-Output "::error::Build failed - Missing executable"
           exit 1
         }
-        # 打印编译器版本
-        cl.exe /?
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: rustdesk-build
+        path: |
+          ${{ env.BUILD_DIR }}/x86_64-pc-windows-msvc/release/*.exe
+          ${{ env.BUILD_DIR }}/x86_64-pc-windows-msvc/release/*.dll
+        retention-days: 7
