@@ -1,54 +1,39 @@
-name: Build C++ Project
+name: Build with Dynamic Toolset
 
-on: [push, pull_request]
+on: [push]
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
-    # 安装完整的 VS 2022 生成工具
-    - name: Install Visual Studio 2022 Build Tools
+    - name: Install VS 2022 Components
+      shell: powershell
+      run: |
+        # 安装最新 MSVC 工具集
+        choco install -y visualstudio2022-workload-vctools --force
+
+    - name: Auto-detect Toolset Version
+      id: detect-toolset
+      shell: powershell
+      run: |
+        $vsPath = & "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" `
+          -latest `
+          -products * `
+          -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+          -property installationPath
+        
+        $toolsetVersion = Get-ChildItem "$vsPath\VC\Tools\MSVC" -Directory `
+          | Sort-Object Name -Descending `
+          | Select-Object -First 1
+        
+        echo "TOOLSET_VERSION=$($toolsetVersion.Name)" >> $env:GITHUB_OUTPUT
+
+    - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
-        toolset: 14.3  # VS 2022 工具集版本
-
-    # 设置 MSVC 编译环境
-    - name: Setup MSVC Environment
-      shell: cmd
-      run: |
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-        echo "INCLUDE=%INCLUDE%" >> %GITHUB_ENV%
-        echo "LIB=%LIB%" >> %GITHUB_ENV%
-        echo "PATH=%PATH%" >> %GITHUB_ENV%
-
-    # 编译项目（示例使用 MSBuild）
-    - name: Build Project
-      shell: cmd
-      run: |
-        msbuild YourProject.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143
-
-    # 验证可执行文件并收集依赖项
-    - name: Verify Executable
-      shell: cmd
-      run: |
-        cd Release
-        dir /b *.exe
-        # 静态链接验证
-        dumpbin /DEPENDENTS YourProgram.exe
-        # 尝试运行程序
-        YourProgram.exe || echo "运行失败，但继续流程"
-
-    # 打包必要的运行时库（如果需要动态链接）
-    - name: Bundle Runtime
-      shell: cmd
-      run: |
-        mkdir dist
-        copy /Y Release\YourProgram.exe dist\
-        copy /Y "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\14.30.30704\vcredist_x64.exe" dist\
+        toolset: ${{ steps.detect-toolset.outputs.TOOLSET_VERSION }}
