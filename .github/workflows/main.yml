@@ -1,19 +1,19 @@
-name: Nightly Windows Build
+name: Nightly Windows Build  # 您可以根据需要修改这个名称
 
 on:
   schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
+    - cron: "0 * * * *"  # 这是一个定时任务，表示每小时执行一次，您可以根据需要修改这个表达式
+  workflow_dispatch:  # 允许手动触发工作流
     inputs:
-      force-build:
+      force-build:  # 这是一个手动触发的输入参数，用于强制构建
         description: 'Force build even if no changes'
         required: false
         default: 'false'
 
 jobs:
-  invoke-windows-build:
-    uses: ./.github/workflows/flutter-build.yml
+  invoke-windows-build:  # 这是工作流的名称
+    uses: ./.github/workflows/flutter-build.yml  # 指定要使用的其他工作流文件，您需要根据实际路径进行修改
     with:
-      upload-artifact: true
-      upload-tag: "nightly"
-    secrets: inherit
+      upload-artifact: true  # 是否上传构建产物
+      upload-tag: "nightly"  # 上传产物的标签
+    secrets: inherit  # 继承父工作流的秘密
