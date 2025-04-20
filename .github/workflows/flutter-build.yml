@@ -1,37 +1,53 @@
-name: Flutter Windows Build
+# 文件位置：.github/workflows/manual-build.yml
+name: Flutter Manual Build
 
 on:
   workflow_dispatch:
     inputs:
       build-mode:
-        description: '构建模式 (debug/release)'
+        description: 'Build mode (debug/release)'
         required: true
         default: 'release'
         type: choice
         options:
           - debug
           - release
-      upload-tag:
-        description: '上传标签'
-        required: false
-        default: 'latest'
-        type: string
 
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        # 🔥 关键配置：所有命令在项目根目录执行
+        working-directory: ${{ github.workspace }}/your_project_dir
+
     steps:
-      - name: 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          path: your_project_dir  # ⚠️ 必须与 working-directory 的子目录名一致
 
-      - name: 设置Flutter环境
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
+        with:
+          channel: stable
 
-      - name: 构建应用
+      - name: Validate Project
+        run: |
+          pwd
+          ls -la pubspec.yaml  # ✅ 确认文件存在
+          flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Windows App
         run: flutter build windows --${{ inputs.build-mode }}
 
-      - name: 上传制品
-        uses: actions/upload-artifact@v4  # 关键修复点
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: windows-build-${{ inputs.build-mode }}
-          path: build/windows/x64/runner/${{ inputs.build-mode }}/*.exe
+          name: windows-${{ inputs.build-mode }}-build
+          path: |
+            your_project_dir/build/windows/runner/*/*.exe
+            your_project_dir/build/windows/**/*.dll
