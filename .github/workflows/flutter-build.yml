@@ -1,28 +1,13 @@
-name: Fixed Windows Build
+# .github/workflows/flutter-build.yml
+name: Flutter Windows Build
 
-jobs:
-  build-windows:
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: ./my_flutter_app  # 与实际项目目录一致
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          path: ./my_flutter_app  # 代码检出到指定子目录
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Validate Structure
-        run: |
-          pwd
-          ls -la
-          flutter doctor -v
-
-      - name: Build EXE
-        run: flutter build windows --release
+# 🔥 必须定义事件触发器（即使被其他工作流调用）
+on:
+  workflow_call:  # 允许被其他工作流调用
+    inputs:
+      upload-artifact:
+        type: boolean
+        default: false
+      upload-tag:
+        type: string
+        default: "latest"
