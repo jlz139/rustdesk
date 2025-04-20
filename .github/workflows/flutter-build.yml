@@ -1,39 +1,28 @@
-name: Flutter Windows Build
-
-on:
-  workflow_call:
-    inputs:
-      upload-artifact:
-        type: boolean
-        default: false
-      upload-tag:
-        type: string
-        default: "latest"
+name: Fixed Windows Build
 
 jobs:
   build-windows:
-    name: Build Windows EXE
-    runs-on: windows-latest  # 必须使用 Windows 环境
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./my_flutter_app  # 与实际项目目录一致
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          path: ./my_flutter_app  # 代码检出到指定子目录
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
 
-      - name: Install Dependencies
-        run: flutter pub get
+      - name: Validate Structure
+        run: |
+          pwd
+          ls -la
+          flutter doctor -v
 
-      - name: Build Windows Release
-        run: flutter build windows --release  # 生成 EXE 的核心命令
-
-      - name: Upload Artifact
-        if: ${{ inputs.upload-artifact }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-exe-${{ inputs.upload-tag }}
-          path: build/windows/runner/Release/*.exe  # EXE 文件路径
+      - name: Build EXE
+        run: flutter build windows --release
