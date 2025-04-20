@@ -1,4 +1,4 @@
-name: Build with Dynamic Toolset
+name: Build with VS 2022
 
 on: [push]
 
@@ -7,33 +7,72 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install VS 2022 Components
+    # 安装 Visual Studio 2022 生成工具
+    - name: Install VS Components
       shell: powershell
       run: |
-        # 安装最新 MSVC 工具集
-        choco install -y visualstudio2022-workload-vctools --force
+        # 安装必要组件
+        choco install -y visualstudio2022-workload-vctools --params="--includeRecommended --includeOptional"
 
-    - name: Auto-detect Toolset Version
-      id: detect-toolset
+    # 动态定位 vswhere.exe 路径
+    - name: Find vswhere.exe
+      id: find_vswhere
       shell: powershell
       run: |
-        $vsPath = & "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" `
+        # 检查多个可能路径
+        $paths = @(
+            "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe",
+            "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        )
+
+        $foundPath = $null
+        foreach ($path in $paths) {
+            if (Test-Path $path) {
+                $foundPath = $path
+                break
+            }
+        }
+
+        if (-not $foundPath) {
+            Write-Error "vswhere.exe 未找到！已检查的路径：$($paths -join ', ')"
+            exit 1
+        }
+
+        # 输出路径到后续步骤
+        echo "vswhere_path=$foundPath" >> $env:GITHUB_OUTPUT
+
+    # 验证工具集版本
+    - name: Verify MSVC Toolset
+      shell: powershell
+      run: |
+        # 使用上一步找到的 vswhere.exe
+        $vsPath = & "${{ steps.find_vswhere.outputs.vswhere_path }}" `
           -latest `
           -products * `
           -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
           -property installationPath
-        
-        $toolsetVersion = Get-ChildItem "$vsPath\VC\Tools\MSVC" -Directory `
-          | Sort-Object Name -Descending `
-          | Select-Object -First 1
-        
-        echo "TOOLSET_VERSION=$($toolsetVersion.Name)" >> $env:GITHUB_OUTPUT
 
+        if (-not $vsPath) {
+            Write-Error "无法定位 Visual Studio 安装目录"
+            exit 1
+        }
+
+        # 列出所有 MSVC 工具集版本
+        $toolsets = Get-ChildItem "$vsPath\VC\Tools\MSVC" -Directory | Select-Object -ExpandProperty Name
+        echo "已安装工具集版本: $($toolsets -join ', ')"
+
+    # 配置 MSVC 环境
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
-        toolset: ${{ steps.detect-toolset.outputs.TOOLSET_VERSION }}
+        toolset: 14.35  # 使用最新稳定版本
+
+    # 编译示例
+    - name: Build Project
+      shell: cmd
+      run: |
+        cl.exe /nologo /EHsc /std:c++20 main.cpp
