@@ -1,0 +1,19 @@
+name: Nightly Windows Build
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      force-build:
+        description: 'Force build even if no changes'
+        required: false
+        default: 'false'
+
+jobs:
+  invoke-windows-build:
+    uses: ./.github/workflows/flutter-build.yml
+    with:
+      upload-artifact: true
+      upload-tag: "nightly"
+    secrets: inherit
