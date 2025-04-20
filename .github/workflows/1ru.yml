@@ -1,0 +1,37 @@
+name: Multi-Branch Build
+
+on:
+  push:
+    branches: [ main, mak, dev ]
+  workflow_dispatch:
+
+jobs:
+  environment-check:
+    runs-on: ubuntu-latest
+    outputs:
+      is_production: ${{ steps.branch-check.outputs.is_prod }}
+    steps:
+      - name: 分支检测
+        id: branch-check
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "is_prod=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prod=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: environment-check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: 分支定制操作
+        if: ${{ needs.environment-check.outputs.is_production == 'false' }}
+        run: echo "正在执行非主分支构建..."
