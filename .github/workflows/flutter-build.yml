@@ -1,9 +1,7 @@
-# .github/workflows/1-flutter-manual-build.yml
-name: "1. Flutter手动构建"  # 按需调整数字前缀
+name: Flutter Windows Build
 
-# 🔥 手动触发配置
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
     inputs:
       build-mode:
         description: '构建模式 (debug/release)'
@@ -20,39 +18,20 @@ on:
         type: string
 
 jobs:
-  manual-build:
+  build:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}/your_project_dir  # 项目真实路径
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
-        with:
-          path: your_project_dir  # 代码检出到子目录
 
       - name: 设置Flutter环境
         uses: subosito/flutter-action@v2
-        with:
-          channel: stable
 
-      - name: 验证项目结构
-        run: |
-          cd your_project_dir
-          ls -la
-          flutter doctor -v
-
-      - name: 获取依赖
-        run: flutter pub get
-
-      - name: 构建Windows程序
+      - name: 构建应用
         run: flutter build windows --${{ inputs.build-mode }}
-      
+
       - name: 上传制品
-        if: ${{ inputs.upload-tag != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 关键修复点
         with:
           name: windows-build-${{ inputs.build-mode }}
-          path: your_project_dir/build/windows/x64/runner/${{ inputs.build-mode }}/*
-          retention-days: 7
+          path: build/windows/x64/runner/${{ inputs.build-mode }}/*.exe
