@@ -1,37 +1,39 @@
-name: Multi-Branch Build
+name: Flutter Windows Build
 
 on:
-  push:
-    branches: [ main, mak, dev ]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      upload-artifact:
+        type: boolean
+        default: false
+      upload-tag:
+        type: string
+        default: "latest"
 
 jobs:
-  environment-check:
-    runs-on: ubuntu-latest
-    outputs:
-      is_production: ${{ steps.branch-check.outputs.is_prod }}
-    steps:
-      - name: 分支检测
-        id: branch-check
-        run: |
-          if [ "${{ github.ref_name }}" = "main" ]; then
-            echo "is_prod=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_prod=false" >> $GITHUB_OUTPUT
-          fi
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest  # 必须使用 Windows 环境
 
-  build:
-    needs: environment-check
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
 
-      - name: 分支定制操作
-        if: ${{ needs.environment-check.outputs.is_production == 'false' }}
-        run: echo "正在执行非主分支构建..."
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release
+        run: flutter build windows --release  # 生成 EXE 的核心命令
+
+      - name: Upload Artifact
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-${{ inputs.upload-tag }}
+          path: build/windows/runner/Release/*.exe  # EXE 文件路径
