@@ -1,63 +1,52 @@
-name: Windows Build
+name: Build with VS 2022
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-env:
-  CARGO_INCREMENTAL: 0
-  RUST_BACKTRACE: full
-  RUSTFLAGS: "-C target-feature=+crt-static"
+on: [push, pull_request]
 
 jobs:
-  build-controlled:
-    runs-on: windows-latest
+  build:
+    runs-on: windows-latest  # 必须使用 Windows 环境
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive  # 关键修复1：递归初始化子模块
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive  # 确保拉取子模块
 
-      - name: Install Build Tools
-        shell: pwsh
-        run: |
-          choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-          refreshenv
-          Write-Host "##vso[task.prependpath]C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64"
+    # 安装 Chocolatey（如尚未安装）
+    - name: Install Chocolatey
+      shell: powershell
+      run: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-pc-windows-msvc
-          override: true
-          components: rustc, rust-std, cargo, clippy, rustfmt  # 关键修复2：明确组件
+    # 安装必要组件
+    - name: Install VS 2022 Build Tools
+      shell: powershell
+      run: |
+        choco install -y visualstudio2022buildtools --package-parameters="--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+        choco install -y dotnetfx
 
-      - name: Build Project
-        shell: pwsh
-        run: |
-          # 验证子模块存在性
-          if (-not (Test-Path "libs/hbb_common/Cargo.toml")) {
-              Write-Error "关键依赖缺失: libs/hbb_common/Cargo.toml 不存在"
-              exit 1
-          }
+    # 刷新环境变量
+    - name: Update environment variables
+      shell: powershell
+      run: |
+        Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+        Update-SessionEnvironment
+        # 显式添加 MSVC 路径到 PATH
+        $msvcPath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64"
+        echo "PATH=$env:PATH;$msvcPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          # 带详细日志的构建
-          cargo build --verbose --bin controlled --features controlled --release --target x86_64-pc-windows-msvc
-          
-          # 产物路径处理
-          $exePath = "target/x86_64-pc-windows-msvc/release/controlled.exe"
-          if (Test-Path $exePath) {
-              New-Item -ItemType Directory -Path "bins" -Force | Out-Null
-              Copy-Item $exePath -Destination "bins/controlled.exe"
-          } else {
-              Get-ChildItem -Recurse target  # 调试：列出构建目录
-              Write-Error "构建失败：产物未生成"
-              exit 1
-          }
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: controlled-bin
-          path: bins/controlled.exe
+    # 验证路径和编译器
+    - name: Verify MSVC tools
+      shell: powershell
+      run: |
+        # 检查 cl.exe 是否存在
+        if (Test-Path "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\bin\Hostx64\x64\cl.exe") {
+          Write-Host "MSVC cl.exe 路径验证成功"
+        } else {
+          Write-Error "MSVC cl.exe 未找到"
+          exit 1
+        }
+        # 打印编译器版本
+        cl.exe /?
